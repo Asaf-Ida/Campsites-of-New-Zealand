@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Campsites distributions</title>
+        <link rel="icon" type="image/x-icon" href="images/pin.png">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <script src="js/leaflet.js"></script>
+        <script src="js/turf.js"></script>
+        <script src="js/leaflet.heat.js"></script>
+        <style>
+            body {
+                padding: 0;
+                margin: 0;
+            }
+            html, body, #map {
+                height: 100%;
+                width: 100%;
+            }
+            .info {
+            text-align: center;
+            }
+            .dropdown {
+            margin: auto;
+            display: block;
+            font-size: 16px;
+            color: #333333;
+            font-family: "Open Sans", Helvetica, sans-serif;
+            padding: 6px 10px;
+            background-color: rgba(241, 241, 241, 0.8);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            border: 1px solid grey;
+            text-align: left;
+            }
+            .dropdown p {
+                margin: 5px 10px 5px 5px;
+                text-align: left;
+            }
+            #region_sel {
+                width: 100%;
+                margin-top: 6px;
+                padding: 6px 8px;
+                font: 14px/16px Arial, Helvetica, sans-serif;
+                background-color: rgba(255,255,255,0.8);
+                box-shadow: 0 0 15px rgba(0,0,0,0.2);
+                border-radius: 5px;
+                text-align: left;
+            }
+            #clear {
+                width: 45%;
+                float: right;
+                padding: 2px 0px;
+                margin-bottom: 10px;
+                font: 14px/16px Arial, Helvetica, sans-serif;
+                background-color: rgba(165, 138, 138, 0.8);
+                box-shadow: 0 0 15px rgba(0,0,0,0.2);
+                border-radius: 5px;
+            }
+            #heatlayer {
+                width: 45%;
+                float: left;
+                padding: 2px 0px;
+                margin-bottom: 10px;
+                font: 14px/16px Arial, Helvetica, sans-serif;
+                background-color: rgba(212, 84, 84, 0.8);
+                box-shadow: 0 0 15px rgba(0,0,0,0.2);
+                border-radius: 5px;
+            }
+            #cluster {
+                width: 45%;
+                float: left;
+                padding: 2px 0px;
+                margin-bottom: 10px;
+                font: 14px/16px Arial, Helvetica, sans-serif;
+                background-color: rgba(114, 212, 84, 0.8);
+                box-shadow: 0 0 15px rgba(0,0,0,0.2);
+                border-radius: 5px;
+            }
+            #nearest {
+                width: 45%;
+                float: right;
+                padding: 2px 0px;
+                margin-bottom: 10px;
+                font: 14px/16px Arial, Helvetica, sans-serif;
+                background-color: rgba(84, 97, 212, 0.8);
+                box-shadow: 0 0 15px rgba(0,0,0,0.2);
+                border-radius: 5px;
+            }
+            .description {
+            width: 320px;
+            margin: auto;
+            display: block;
+            font-size: 16px;
+            color: #333333;
+            font-family: "Open Sans", Helvetica, sans-serif;
+            padding: 10px 14px;
+            background-color: rgba(245, 220, 221, 0.8);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            border: 1px solid grey;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+        <script>
+
+    // Initialize map
+    let map = L.map("map").setView([-41, 174], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    // add a description to the map
+    let description = L.control({position: "bottomleft"});
+    description.onAdd = function() {
+        let div = L.DomUtil.create("div", "description");
+        div.innerHTML = 
+            '<h3>Campsites distributions map in New Zealand</h3><hr>' +
+            '<p><b>Summary</b></p>' +
+            'A web map created to show the Campsites (serviced and un-serviced) on Public Conservation Land managed by the Department of Conservation (DOC).<br><br>' +
+            '<div id="small_font">Click on the buttons to activate more functionality.<br>' +
+            '<i>Created with Leaflet and Turf libraries.</i></div><br>' +
+            '<hr><h4>Map creator: Asaf Ida</h4>' + 
+            '<a href="https://doc-deptconservation.opendata.arcgis.com/" target="_blank"><img src="https://deptconservation.maps.arcgis.com/sharing/rest/content/items/d735f2a52ab748cb818a7aabb3874c3b/data" height=60px width= 270px></a>';
+            // Return the description 'div' containing the HTML content
+        return div;
+                };
+                description.addTo(map);
+
+    // Define variables 
+    let target_location = L.layerGroup().addTo(map);
+    let points_array = [];
+    let my_location = L.layerGroup().addTo(map);
+    let lines = L.layerGroup().addTo(map);
+    let regions_names = [];
+    let locations = [];
+    let regions = {};
+    let Layer_regions = L.layerGroup().addTo(map);
+    let complete_url = "https://services1.arcgis.com/3JjYDyG3oajxU6HO/arcgis/rest/services/DOC_Campsites/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson";
+    let url = "https://services1.arcgis.com/3JjYDyG3oajxU6HO/arcgis/rest/services/DOC_Campsites/FeatureServer/0/query?";    
+    let sql_start = "where=region+%3D+%27";
+    let sql_final = "%27&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&resultType=none&distance=0.0&units=esriSRUnit_Meter&relationParam=&returnGeodetic=false&outFields=*&returnGeometry=true&featureEncoding=esriDefault&multipatchOption=xyFootprint&maxAllowableOffset=&geometryPrecision=&outSR=&defaultSR=&datumTransformation=&applyVCSProjection=false&returnIdsOnly=false&returnUniqueIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&returnQueryGeometry=false&returnDistinctValues=false&cacheHint=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&having=&resultOffset=&resultRecordCount=&returnZ=false&returnM=false&returnExceededLimitFeatures=true&quantizationParameters=&sqlFormat=standard&f=pgeojson&token="; 
+    
+    // Set custom icon
+    let red_icon = L.icon({
+        iconUrl: "images/red_icon.png",
+        shadowUrl: "images/marker-shadow.png",
+        iconAnchor: [13, 41]
+    });
+
+    // Add empty dropdown menu
+    let dropdown = L.control({position: "topright"});
+    dropdown.onAdd = function() {
+        let div = L.DomUtil.create("div", "dropdown");
+        div.innerHTML = '<input type="button" id="heatlayer" value="Draw Heatmap">' + 
+        '<input type="button" id="clear" value="Clear">' + 
+        '<input type="button" id="cluster" value="Show Clusters">' + 
+        '<input type="button" id="nearest" value="Nearest Point">' + 
+        '<p><b>Choose Region</b></p><select id="region_sel"><option>------------------</option></select><br>';
+        return div;
+        };
+    dropdown.addTo(map);
+
+    // Load capmsite list
+        fetch(complete_url)
+            .then(function(response) {
+                return response.json();
+            })
+            .then(function(data) {
+                let regions_list = "";
+                data.features.forEach(function(element) {
+                    points_array.push(turf.point(element.geometry.coordinates, {name : element.properties.name}));
+                    let tmp = element.properties.region;
+                    if(regions[tmp] === undefined) {
+                        regions[tmp] = tmp;
+                        regions_names.push(tmp)
+                        regions_list += "<option>" + tmp + "</option>";
+                        } 
+                });
+                regions_list += "<option>All Regions</option>";
+                document.getElementById("region_sel").innerHTML += regions_list;
+    // Build Array for later use in the Heat-map layer
+                data.features.forEach(function(element) {
+                    let coords = element.geometry.coordinates;
+                    let location = [coords[1], coords[0], 0.5];
+                    locations.push(location);
+                });
+            });
+
+    // Change avaliable campsites according to change selection button
+            function update_regions() {
+                let regions_value = document.getElementById("region_sel").value;
+                if (regions_value === "All Regions"){
+                    composed_url = complete_url;
+                } else {
+                    composed_url = url + sql_start + regions_value + sql_final;
+                }
+
+                fetch(composed_url)
+                    .then(function(response) {
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        Layer_regions.clearLayers();
+                        L.geoJSON(data, {
+                        onEachFeature: function(feature, layer) {
+                            // Bind popup
+                            layer.bindPopup("<p class=info><b>Name: </b><i>" + feature.properties.name + "</i><br><b>Place: </b>" + feature.properties.place + "<br><b>Region: </b>" +  
+                                feature.properties.region + "</p>");}
+                        }).addTo(Layer_regions);
+                     })
+                            };
+                
+            
+            // Define color palatte 
+            colors = ['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99','#b15928', '#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462']
+            // Color function
+            function region_color(region_name) {
+                for(let i = 0; i < regions_names.length; i++) {
+                    if(region_name === regions_names[i]) {
+                        return colors[i];
+                    }
+                }
+            }
+
+            // Style function
+            function region_style(feature) {
+                return {
+                    fillColor: region_color(feature.properties.region),
+                    weight: 1,
+                    opacity: 1,
+                    color: "black",
+                    fillOpacity: 0.8,
+                    radius: 6
+                };
+            }
+
+            function drawclusters() {
+
+                // Load GeoJSON from database and draw spatial clusters on the map
+                document.getElementById("region_sel").value = 'All Regions';
+
+                fetch(complete_url)
+                    .then(function(response) {
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        Layer_regions.clearLayers();
+                        turf.clusterEach(data, "region", function(cluster, clusterValue, currentIndex) {
+                            clustered = turf.clustersDbscan(cluster, 20);
+                            turf.clusterEach(clustered, "cluster", function(cluster2, clusterValue2, currentIndex2) {
+                                let ch = turf.convex(cluster2);
+                                ch.properties.region = clusterValue;
+                                L.geoJSON(ch, {
+                                    onEachFeature: function(feature, layer) {
+                                        currentIndex2 += 1
+                                        layer.bindPopup("<b>Region: </b><i>" + clusterValue + "</i><br><b>Cluster number: </b>" + currentIndex2);
+                                },
+                                style: region_style}).addTo(Layer_regions);
+                            });
+                            L.geoJSON(cluster, {
+                                onEachFeature: function(feature, layer) {
+                                    layer.bindPopup("<b>Region: </b><i>" + clusterValue + "</i>");
+                                },
+                                pointToLayer: function(geoJsonPoint, latlng) {
+                                    return L.circleMarker(latlng);
+                                },
+                                style: region_style
+                            }).addTo(Layer_regions);
+                        });
+                    });
+                }
+
+                function find_nearest_point() {
+                    // Find the nearst campsite point to a clicked location 
+                    document.getElementById("region_sel").value = "------------------";
+                    map.addEventListener("click", map_click)
+                }
+
+
+                function map_click(e) {
+                    // Get clicked coordinates
+                    click_coords = e.latlng;
+                        
+                    // Clear map
+                    target_location.clearLayers();
+                    my_location.clearLayers();
+                    lines.clearLayers();
+                        
+                    // Add location marker
+                    L.marker(click_coords, {icon: red_icon}).addTo(my_location);
+                    target_point = turf.point([click_coords.lng, click_coords.lat]);
+                    collection = turf.featureCollection(points_array);
+                    nearest = turf.nearestPoint(target_point, collection);
+                    L.geoJSON(nearest, { onEachFeature: function(feature, layer) {
+                                layer.bindPopup("<b>Name: </b><i>" + feature.properties.name + "</i>");
+                                }}).addTo(target_location);
+                    
+                    // Add a line between the clicked location and the nearest point and display the distance
+                    distance = nearest.properties.distanceToPoint;
+                    nearest_coords = nearest.geometry.coordinates;
+                    let line_coords = [[click_coords.lat, click_coords.lng], [nearest_coords[1], nearest_coords[0]]];
+                    L.polyline(line_coords, {color: "red", weight: 3, opacity: 0.75}).bindPopup("<p class=info><b>Distance:</b> " + distance.toFixed(2) + " km</p>").addTo(lines);
+                };
+
+
+                function clear_all() {
+                    // Remove all drawings from the map
+                    my_location.clearLayers();
+                    target_location.clearLayers();
+                    lines.clearLayers();
+                    Layer_regions.clearLayers();
+                    document.getElementById("region_sel").value = "------------------";
+                    map.removeEventListener("click", map_click)
+                }
+                    
+                //Define funcionlity for a bunch of buttons on the web page
+                document.getElementById("region_sel").addEventListener("change", update_regions);   
+
+                document.getElementById("heatlayer").addEventListener("click", function() {
+                    Layer_regions.clearLayers();
+                    document.getElementById("region_sel").value = 'All Regions';
+                    L.heatLayer(locations, {radius: 20, minOpacity: 0.5}).addTo(Layer_regions); 
+                });
+                document.getElementById("clear").addEventListener("click", clear_all);
+                document.getElementById("cluster").addEventListener("click", drawclusters);
+                document.getElementById("nearest").addEventListener("click", function() {
+                    setTimeout(find_nearest_point, 500)
+                });
+
+        </script>
+    </body>
+</html>
